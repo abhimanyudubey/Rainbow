@@ -168,7 +168,6 @@ else:
     for T in tqdm(range(args.T_max)):
         if done:
             state, done = env.reset(), False
-        print(state.shape)
         if T % args.replay_frequency == 0:
             dqn.reset_noise()  # Draw a new set of noisy weights
 

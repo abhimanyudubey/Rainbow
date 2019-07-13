@@ -71,11 +71,11 @@ def normal_init(m, mean, std):
 
 class Generator(nn.Module):
     # initializers
-    def __init__(self, d=128):
+    def __init__(self, d=128, n_actions=4):
         super(Generator, self).__init__()
         self.deconv1_1 = nn.ConvTranspose2d(100, d*4, 4, 1, 0)
         self.deconv1_1_bn = nn.BatchNorm2d(d*4)
-        self.deconv1_2 = nn.ConvTranspose2d(2, d*4, 4, 1, 0)
+        self.deconv1_2 = nn.ConvTranspose2d(n_actions, d*4, 4, 1, 0)
         self.deconv1_2_bn = nn.BatchNorm2d(d*4)
         self.deconv2 = nn.ConvTranspose2d(d*8, d*4, 4, 2, 1)
         self.deconv2_bn = nn.BatchNorm2d(d*4)
@@ -84,9 +84,16 @@ class Generator(nn.Module):
         # self.deconv4 = nn.ConvTranspose2d(d, 3, 4, 2, 1)
         self.deconv4 = nn.ConvTranspose2d(d*2, d, 4, 2, 1)
         self.deconv4_bn = nn.BatchNorm2d(d)
-        self.deconv5 = nn.ConvTranspose2d(d, 3, 4, 2, 1)
+        self.deconv5 = nn.ConvTranspose2d(d, 8, 4, 2, 1)
+        self.deconv5_bn = nn.BatchNorm2d(8)
+        self.deconv6 = nn.ConvTranspose2d(8, 4, 4, 2, 1)
 
-        # self.conv1 = nn.Conv2d()
+        self.conv1 = nn.Conv2d(4, 32, 2, 1)
+        self.conv2 = nn.Conv2d(32, 64, 2, 1)
+        self.conv3 = nn.Conv2d(64, 128, 3, 3)
+
+        self.avg_pool1 = nn.AvgPool2d((16, 16))
+        self.fc1 = nn.Linear(512, 1)
 
     # weight_init
     def weight_init(self, mean, std):
@@ -96,16 +103,26 @@ class Generator(nn.Module):
     # forward method
     # def forward(self, input):
     def forward(self, input, label, base):
+
+        batchsize = input.size(0)
         x = F.leaky_relu(self.deconv1_1_bn(self.deconv1_1(input)), 0.2)
         y = F.leaky_relu(self.deconv1_2_bn(self.deconv1_2(label)), 0.2)
+        z = F.pad(base, pad=(7, 7, 7, 7, 0, 0), mode='constant', value=0)
+        z = F.leaky_relu(self.conv1(z), 0.2)
+        z = F.leaky_relu(self.conv2(z), 0.2)
+        z = F.leaky_relu(self.conv3(z), 0.2)
         x = torch.cat([x, y], 1)
         x = F.leaky_relu(self.deconv2_bn(self.deconv2(x)), 0.2)
         x = F.leaky_relu(self.deconv3_bn(self.deconv3(x)), 0.2)
         # x = F.tanh(self.deconv4(x))
         x = F.leaky_relu(self.deconv4_bn(self.deconv4(x)), 0.2)
-        x = F.tanh(self.deconv5(x))
 
-        return x + base
+        x = x + z
+        r = F.sigmoid(self.fc1(self.avg_pool1(x).view(batchsize, -1)))
+        x = F.leaky_relu(self.deconv5_bn(self.deconv5(x)), 0.2)
+        x = F.tanh(self.deconv6(x))
+
+        return x[:, :, 22:106, 22:106], r
 
 
 class Discriminator(nn.Module):
