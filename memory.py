@@ -73,6 +73,9 @@ class Generator(nn.Module):
     # initializers
     def __init__(self, d=128, n_actions=4):
         super(Generator, self).__init__()
+
+        self.n_actions = n_actions
+
         self.deconv1_1 = nn.ConvTranspose2d(100, d*4, 4, 1, 0)
         self.deconv1_1_bn = nn.BatchNorm2d(d*4)
         self.deconv1_2 = nn.ConvTranspose2d(n_actions, d*4, 4, 1, 0)
@@ -105,6 +108,10 @@ class Generator(nn.Module):
     def forward(self, input, label, base):
 
         batchsize = input.size(0)
+        y = torch.zeros(batchsize, self.n_actions, 1, 1)
+        for i in range(batchsize):
+            y[i, label[i], :, :] = 1.0
+
         x = F.leaky_relu(self.deconv1_1_bn(self.deconv1_1(input)), 0.2)
         y = F.leaky_relu(self.deconv1_2_bn(self.deconv1_2(label)), 0.2)
         z = F.pad(base, pad=(7, 7, 7, 7, 0, 0), mode='constant', value=0)
@@ -127,18 +134,25 @@ class Generator(nn.Module):
 
 class Discriminator(nn.Module):
     # initializers
-    def __init__(self, d=128):
+    def __init__(self, d=128, n_actions=4):
         super(Discriminator, self).__init__()
-        self.conv1_1 = nn.Conv2d(3, d/2, 4, 2, 1)
-        self.conv1_2 = nn.Conv2d(2, d/2, 4, 2, 1)
+        self.n_actions = n_actions
+
+        self.conv1_1 = nn.Conv2d(4, d/2, 4, 2, 1)
+        self.conv1_2 = nn.Conv2d(n_actions, d/2, 4, 2, 1)
         self.conv2 = nn.Conv2d(d, d*2, 4, 2, 1)
         self.conv2_bn = nn.BatchNorm2d(d*2)
         self.conv3 = nn.Conv2d(d*2, d*4, 4, 2, 1)
         self.conv3_bn = nn.BatchNorm2d(d*4)
         # self.conv4 = nn.Conv2d(d*4, 1, 4, 1, 0)
-        self.conv4 = nn.Conv2d(d*4, d*8, 4, 2, 1)
+        self.conv4 = nn.Conv2d(d*4 + 1, d*8, 4, 2, 1)
         self.conv4_bn = nn.BatchNorm2d(d*8)
-        self.conv5 = nn.Conv2d(d*8, 1, 4, 1, 0)
+        self.conv5 = nn.Conv2d(d*8, 1, 5, 1, 0)
+
+        self.base_conv1 = nn.Conv2d(4, d/2, 4, 2, 1)
+        self.base_conv1_bn = nn.BatchNorm2d(d/2)
+        self.base_conv2 = nn.Conv2d(d/2, d*2, 4, 2, 1)
+        self.base_conv2_bn = nn.BatchNorm2d(d*2)
 
     # weight_init
     def weight_init(self, mean, std):
@@ -147,13 +161,27 @@ class Discriminator(nn.Module):
 
     # forward method
     # def forward(self, input):
-    def forward(self, input, label):
+    def forward(self, input, label, base, reward):
+
+        batchsize = input.size(0)
+        y = torch.zeros(batchsize, self.n_actions, 84, 84)
+        r = torch.zeros(batchsize, 1, 10, 10)
+        for i in range(batchsize):
+            y[i, label[i], :, :] = 1.0
+            r[i, 0, :, :] = reward[i]
+
         x = F.leaky_relu(self.conv1_1(input), 0.2)
-        y = F.leaky_relu(self.conv1_2(label), 0.2)
+        y = F.leaky_relu(self.conv1_2(y), 0.2)
         x = torch.cat([x, y], 1)
         x = F.leaky_relu(self.conv2_bn(self.conv2(x)), 0.2)
+
+        z = F.leaky_relu(self.base_conv1_bn(self.base_conv1(base)), 0.2)
+        z = F.leaky_relu(self.base_conv2_bn(self.base_conv2(z)), 0.2)
+
+        x = x - z
         x = F.leaky_relu(self.conv3_bn(self.conv3(x)), 0.2)
         # x = F.sigmoid(self.conv4(x))
+        x = torch.cat([x, r], dim=1)
         x = F.leaky_relu(self.conv4_bn(self.conv4(x)), 0.2)
         x = F.sigmoid(self.conv5(x))
 
