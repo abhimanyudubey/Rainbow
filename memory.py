@@ -71,10 +71,11 @@ def normal_init(m, mean, std):
 
 class Generator(nn.Module):
     # initializers
-    def __init__(self, d=128, n_actions=4):
+    def __init__(self, d=128, n_actions=4, history_length=4):
         super(Generator, self).__init__()
 
         self.n_actions = n_actions
+        self.history_length = history_length
 
         self.deconv1_1 = nn.ConvTranspose2d(100, d*4, 4, 1, 0)
         self.deconv1_1_bn = nn.BatchNorm2d(d*4)
@@ -87,11 +88,12 @@ class Generator(nn.Module):
         # self.deconv4 = nn.ConvTranspose2d(d, 3, 4, 2, 1)
         self.deconv4 = nn.ConvTranspose2d(d*2, d, 4, 2, 1)
         self.deconv4_bn = nn.BatchNorm2d(d)
-        self.deconv5 = nn.ConvTranspose2d(d, 8, 4, 2, 1)
-        self.deconv5_bn = nn.BatchNorm2d(8)
-        self.deconv6 = nn.ConvTranspose2d(8, 4, 4, 2, 1)
+        self.deconv5 = nn.ConvTranspose2d(d, 2*self.history_length, 4, 2, 1)
+        self.deconv5_bn = nn.BatchNorm2d(2*self.history_length)
+        self.deconv6 = nn.ConvTranspose2d(
+            2*self.history_length, self.history_length, 4, 2, 1)
 
-        self.conv1 = nn.Conv2d(4, 32, 2, 1)
+        self.conv1 = nn.Conv2d(self.history_length, 32, 2, 1)
         self.conv2 = nn.Conv2d(32, 64, 2, 1)
         self.conv3 = nn.Conv2d(64, 128, 3, 3)
 
@@ -188,6 +190,17 @@ class Discriminator(nn.Module):
         return x
 
 
+class GenerativeReplayMemory():
+    def __init__(self, args, capacity):
+        self.capacity = capacity
+        self.device = args.device
+        self.history = args.history_length
+
+
+        return None
+
+
+
 class ReplayMemory():
     def __init__(self, args, capacity):
         self.device = args.device
@@ -244,19 +257,20 @@ class ReplayMemory():
         state = torch.stack(
             [trans.state for trans in transition[:self.history]]).to(
             dtype=torch.float32, device=self.device).div_(255)
-        next_state = torch.stack(
-            [trans.state for trans in transition[self.n:self.n +
-            self.history]]).to(dtype=torch.float32,
-            device=self.device).div_(255)
+        next_state = torch.stack([
+            trans.state for trans in transition[
+                self.n:self.n + self.history]]).to(
+                dtype=torch.float32, device=self.device).div_(255)
         # Discrete action to be used as index
         action = torch.tensor(
             [transition[self.history - 1].action],
             dtype=torch.int64, device=self.device)
         # Calculate truncated n-step discounted return R^n = Σ_k=0->n-1
         # (γ^k)R_t+k+1 (note that invalid nth next states have reward 0)
-        R = torch.tensor(
-            [sum(self.discount ** n * transition[self.history + n - 1].reward
-            for n in range(self.n))], dtype=torch.float32, device=self.device)
+        R = torch.tensor([
+            sum(self.discount ** n * transition[self.history + n - 1].reward
+                for n in range(self.n))], dtype=torch.float32,
+                device=self.device)
     # Mask for non-terminal nth next states
         nonterminal = torch.tensor(
             [transition[self.history + self.n - 1].nonterminal],
