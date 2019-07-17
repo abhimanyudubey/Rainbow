@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.utils.data.sampler import WeightedRandomSampler
 
 
 Transition = namedtuple(
@@ -136,11 +137,11 @@ class Generator(nn.Module):
 
 class Discriminator(nn.Module):
     # initializers
-    def __init__(self, d=128, n_actions=4):
+    def __init__(self, d=128, n_actions=4, history_length=4):
         super(Discriminator, self).__init__()
         self.n_actions = n_actions
 
-        self.conv1_1 = nn.Conv2d(4, d/2, 4, 2, 1)
+        self.conv1_1 = nn.Conv2d(history_length, d/2, 4, 2, 1)
         self.conv1_2 = nn.Conv2d(n_actions, d/2, 4, 2, 1)
         self.conv2 = nn.Conv2d(d, d*2, 4, 2, 1)
         self.conv2_bn = nn.BatchNorm2d(d*2)
@@ -191,13 +192,70 @@ class Discriminator(nn.Module):
 
 
 class GenerativeReplayMemory():
-    def __init__(self, args, capacity):
+    def __init__(self, args, capacity, n_actions, device=1):
+
         self.capacity = capacity
         self.device = args.device
-        self.history = args.history_length
+        self.history_length = args.history_length
 
+        self.states = None
+        self.next_states = None
+        self.actions = None
+        self.rewards = None
+        self.num_samples = 0
+        self.dim_model = args.dim_model
+        self.n_actions = n_actions
+        self.replay_device = device
 
-        return None
+        self.generator = Generator(
+            self.dim_model, self.n_actions, self.history_length)
+        self.discriminator = Discriminator(
+            self.dim_model, self.n_actions, self.history_length)
+
+    def append(self, state, action, next_state, reward, terminal):
+
+        if not terminal:
+            # we only consider non-terminal states right now
+            push_state =\
+                state.to(device=torch.device('cpu')).unsqueeze(0)
+            push_action =\
+                action.to(device=torch.device('cpu')).unsqueeze(0)
+            push_next_state =\
+                next_state.to(device=torch.device('cpu')).unsqueeze(0)
+            push_reward =\
+                reward.to(device=torch.device('cpu')).unsqueeze(0)
+
+            if self.states is None:
+
+                self.states = push_state
+                self.next_states = push_next_state
+                self.actions = push_action
+                self.rewards = push_reward
+
+            elif self.num_samples < self.capacity:
+
+                self.states = torch.cat(
+                    [self.states, push_state], dim=0)
+                self.next_states = torch.cat(
+                    [self.next_states, push_next_state], dim=0)
+                self.actions = torch.cat(
+                    [self.actions, push_action], dim=0)
+                self.reward = torch.cat(
+                    [self.reward, push_reward], dim=0)
+
+            else:
+                # rolling replay memory
+
+                self.states = torch.cat(
+                    [self.states[1:], push_state], dim=0)
+                self.next_states = torch.cat(
+                    [self.next_states[1:], push_next_state], dim=0)
+                self.actions = torch.cat(
+                    [self.actions[1:], push_action], dim=0)
+                self.reward = torch.cat(
+                    [self.reward[1:], push_reward], dim=0)
+
+            self.num_samples += 1
 
 
 
