@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data.sampler import WeightedRandomSampler
+from torch.autograd import Variable
 
 
 Transition = namedtuple(
@@ -206,11 +207,33 @@ class GenerativeReplayMemory():
         self.dim_model = args.dim_model
         self.n_actions = n_actions
         self.replay_device = device
+        self.batchsize = args.gan_batchsize
+        self.lr = 0.0002
+        self.num_epochs_done = 0
 
-        self.generator = Generator(
+        self.G = Generator(
             self.dim_model, self.n_actions, self.history_length)
-        self.discriminator = Discriminator(
+        self.D = Discriminator(
             self.dim_model, self.n_actions, self.history_length)
+
+        self.D.weight_init(mean=0.0, std=0.02)
+        self.G.weight_init(mean=0.0, std=0.02)
+
+        self.G.cuda(device=args.device)
+        self.D.cuda(device=args.device)
+
+        self.G_opt = optim.Adam(
+            self.G.parameters, lr=self.lr, betas=(0.5, 0.999))
+        self.D_opt = optim.Adam(
+            self.D.parameters, lr=self.lr, betas=(0.5, 0.999))
+
+    def _train_epoch(self, train_loader):
+
+        y_reals = torch.ones(self.batchsize)
+        y_fakes = torch.zeros(self.batchsize)
+
+        y_reals = Variable(y_reals.cuda(device=self.device))
+        y_reals = Variable(y_fakes.cuda(device=self.device))
 
     def append(self, state, action, next_state, reward, terminal):
 
